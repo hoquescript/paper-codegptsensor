@@ -120,11 +120,12 @@ class TextDataset(Dataset):
 
 def set_seed(seed=42):
     random.seed(seed)
-    os.environ['PYHTONHASHSEED'] = str(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.backends.cudnn.deterministic = True
 
     
 def train(args, train_dataset, model, tokenizer):
@@ -152,7 +153,8 @@ def train(args, train_dataset, model, tokenizer):
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
     logger.info("  Num Epochs = %d", args.num_train_epochs)
-    logger.info("  Instantaneous batch size per GPU = %d", args.train_batch_size // args.n_gpu )
+    per_device_batch_size = args.train_batch_size if args.n_gpu == 0 else args.train_batch_size // args.n_gpu
+    logger.info("  Instantaneous batch size per GPU = %d", per_device_batch_size)
     logger.info("  Total train batch size = %d", args.train_batch_size)
     logger.info("  Total optimization steps = %d", args.max_steps)
 
@@ -360,7 +362,7 @@ def main():
         checkpoint_prefix = 'checkpoint-best-f1/model.bin'
         output_dir = os.path.join(args.output_dir, '{}'.format(checkpoint_prefix))  
         model_to_load = model.module if hasattr(model, 'module') else model  
-        model_to_load.load_state_dict(torch.load(output_dir))      
+        model_to_load.load_state_dict(torch.load(output_dir, map_location=args.device))
         result, _ = evaluate(args, model, tokenizer, args.test_data_file)
         logger.info("***** Test results *****")
         for key in sorted(result.keys()):

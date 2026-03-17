@@ -13,7 +13,18 @@ This repository is for the paper titled "*Distinguishing LLM-generated from Huma
 |	├── utils           # Code for early stopping
 |	├── model.py        # Code for our model
 |	└── run.py          # Code for training and evaluation
+├── dataset             # Extracted Java and Python datasets
 └── dataset.zip         # The Java and Python train/valid/test datasets of ".jsonl" files
+```
+
+### Setup
+Create a virtual environment in the project root and install dependencies:
+``` bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+cd CodeGPTSensor
 ```
 
 ### Implementation of CodeGPTSensor
@@ -46,6 +57,8 @@ CUDA_VISIBLE_DEVICES=0 python run.py \
     --eval_batch_size 16 \
     --seed 99
 ```
+
+For a quick local smoke test, replace the dataset with `../dataset/python/train_small.jsonl`, set `--num_train_epochs 1`, and use smaller batch sizes such as `--train_batch_size 2 --eval_batch_size 2`.
 
 **Notes:**
 - Replace "train.jsonl" with "train_no_comment.jsonl" for the without comment datasets.
