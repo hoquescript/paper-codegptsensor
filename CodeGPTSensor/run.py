@@ -22,7 +22,6 @@ using a masked language modeling (MLM) loss.
 from __future__ import absolute_import, division, print_function
 
 import argparse
-from lib2to3.pgen2 import token
 import logging
 import os
 import random
