@@ -13,29 +13,37 @@ The generated AST sequences can be used as:
 2. Part of "Combined" (Code + AST) representation
 """
 
+import logging
 import os
-import pandas as pd
 from glob import glob
 
+import pandas as pd
 from tree_sitter import Language, Parser
 import tree_sitter_python as tspython
 import tree_sitter_java as tsjava
 import tree_sitter_cpp as tscpp
 
-from scripts.utils.ast.language.python_ast import traverse_ast as F_python
-from scripts.utils.ast.language.java_ast import traverse_ast as F_java
-from scripts.utils.ast.language.cpp_ast import traverse_ast as F_cpp
-from scripts.utils.ast.tree_sitter_loader import get_parser_for_language
+from utils.ast.language.python_ast import traverse_ast as F_python
+from utils.ast.language.java_ast import traverse_ast as F_java
+from utils.ast.language.cpp_ast import traverse_ast as F_cpp
+
+logger = logging.getLogger(__name__)
 
 
 PYTHON_LANGUAGE = Language(tspython.language())
 JAVA_LANGUAGE = Language(tsjava.language())
 CPP_LANGUAGE = Language(tscpp.language())
 
+
+def _build_parser(language):
+    parser = Parser()
+    parser.language = language
+    return parser
+
 providers = {
-    "cpp": {"parser": Parser(CPP_LANGUAGE), "generator": F_cpp},
-    "java": {"parser": Parser(JAVA_LANGUAGE), "generator": F_java},
-    "python": {"parser": Parser(PYTHON_LANGUAGE), "generator": F_python},
+    "cpp": {"parser": _build_parser(CPP_LANGUAGE), "generator": F_cpp},
+    "java": {"parser": _build_parser(JAVA_LANGUAGE), "generator": F_java},
+    "python": {"parser": _build_parser(PYTHON_LANGUAGE), "generator": F_python},
 }
 
 
@@ -64,6 +72,7 @@ def generate_ast_sequence(code, lang):
         >>> ast_seq = generate_ast_sequence(code, 'python')
         >>> # Returns: "module::left function_definition::left def foo ..."
     """
+    lang = str(lang).lower()
     provider = providers[lang]
     parser = provider["parser"]
     generator = provider["generator"]
@@ -72,10 +81,16 @@ def generate_ast_sequence(code, lang):
     code_bytes = code.encode("utf8")
     try:
         tree = parser.parse(code_bytes)
+        if tree.root_node is None:
+            logger.debug("AST parse failed for language=%s because no root node was produced.", lang)
+            return None
         ast_tokens = generator(tree.root_node, code_bytes)
+        if not ast_tokens:
+            logger.debug("AST generation produced no tokens for language=%s.", lang)
+            return None
         return " ".join(ast_tokens)
     except Exception as e:
-        print(f"[ERROR] [GENERATE AST]: {e}")
+        logger.debug("AST generation failed for language=%s: %s", lang, e)
         return None
 
 

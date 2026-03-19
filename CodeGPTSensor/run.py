@@ -45,6 +45,7 @@ from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_sc
 no_deprecation_warning=True
 logger = logging.getLogger(__name__)
 early_stopping = EarlyStopping()
+AST_SEPARATOR_TOKEN = "<AST_SEP>"
 
 class InputFeatures(object):
     """A single training/test features for a example."""
@@ -66,14 +67,19 @@ class InputFeatures(object):
         
 def convert_examples_to_features(js,tokenizer,args):
     """convert examples to token ids"""
-    code = ' '.join(js['code'].split())
+    code_fields = build_representation_fields(js['code'], args)
+    contrast_fields = build_representation_fields(js['contrast'], args)
+    if code_fields is None or contrast_fields is None:
+        return None
+
+    code = select_representation_text(code_fields, args.representation)
     code_tokens = tokenizer.tokenize(code)[:args.block_size-4]
     source_tokens = [tokenizer.cls_token,"<encoder_only>",tokenizer.sep_token] + code_tokens + [tokenizer.sep_token]
     source_ids = tokenizer.convert_tokens_to_ids(source_tokens)
     padding_length = args.block_size - len(source_ids)
     source_ids += [tokenizer.pad_token_id]*padding_length
     
-    contrast = ' '.join(js['contrast'].split())
+    contrast = select_representation_text(contrast_fields, args.representation)
     contrast_tokens = tokenizer.tokenize(contrast)[:args.block_size-4]
     contrast_tokens = [tokenizer.cls_token,"<encoder_only>",tokenizer.sep_token] + contrast_tokens + [tokenizer.sep_token]
     contrast_ids = tokenizer.convert_tokens_to_ids(contrast_tokens)
@@ -87,17 +93,95 @@ def convert_examples_to_features(js,tokenizer,args):
                          js['label'],js['index'])
 
 
+def normalize_source_text(text):
+    return ' '.join(str(text).split())
+
+
+def infer_language_from_file_path(file_path):
+    normalized_path = str(file_path).lower().replace("\\", "/")
+    if "/python/" in normalized_path or "python" in os.path.basename(normalized_path):
+        return "python"
+    if "/java/" in normalized_path or "java" in os.path.basename(normalized_path):
+        return "java"
+    if "/cpp/" in normalized_path or "cpp" in os.path.basename(normalized_path):
+        return "cpp"
+    raise ValueError("Unable to infer language from data path: {}".format(file_path))
+
+
+def resolve_dataset_language(args):
+    for file_path in [args.train_data_file, args.eval_data_file, args.test_data_file]:
+        if file_path:
+            return infer_language_from_file_path(file_path)
+    raise ValueError("Unable to determine dataset language from the provided file paths.")
+
+
+def get_checkpoint_dir(output_dir):
+    return os.path.join(output_dir, 'checkpoint-best-f1')
+
+
+def resolve_tokenizer_source(args):
+    checkpoint_dir = get_checkpoint_dir(args.output_dir)
+    tokenizer_config_path = os.path.join(checkpoint_dir, "tokenizer_config.json")
+    if args.do_test and os.path.exists(tokenizer_config_path):
+        return checkpoint_dir
+    return args.model_name_or_path
+
+
+def build_representation_fields(text, args):
+    code_text = normalize_source_text(text)
+    fields = {
+        "code_text": code_text,
+        "ast_text": None,
+        "combined_text": None,
+    }
+
+    if args.representation == "code":
+        return fields
+
+    from utils.ast.ast_generator import generate_ast_sequence
+
+    ast_text = generate_ast_sequence(code_text, args.language)
+    if ast_text is None:
+        return None
+
+    fields["ast_text"] = ast_text
+    fields["combined_text"] = "{} {} {}".format(code_text, AST_SEPARATOR_TOKEN, ast_text)
+    return fields
+
+
+def select_representation_text(fields, representation):
+    if representation == "code":
+        return fields["code_text"]
+    if representation == "ast":
+        return fields["ast_text"]
+    return fields["combined_text"]
+
+
 class TextDataset(Dataset):
     def __init__(self, tokenizer, args, file_path=None):
         self.examples = []
         data = []
+        total_examples = 0
+        skipped_examples = 0
         with open(file_path) as f:
-            for line in f:
+            for line_number, line in enumerate(f, start=1):
+                total_examples += 1
                 line = line.strip()
                 js = json.loads(line)
-                data.append(js)
+                feature = convert_examples_to_features(js,tokenizer,args)
+                if feature is None:
+                    skipped_examples += 1
+                    if skipped_examples <= 3:
+                        logger.warning("Skipping example at line %s in %s because representation=%s could not be created.",
+                                       line_number, file_path, args.representation)
+                    continue
+                data.append(feature)
         for js in data:
-            self.examples.append(convert_examples_to_features(js,tokenizer,args))
+            self.examples.append(js)
+        logger.info("Loaded dataset from %s for representation=%s: total=%s converted=%s skipped=%s",
+                    file_path, args.representation, total_examples, len(self.examples), skipped_examples)
+        if len(self.examples) == 0:
+            raise ValueError("No valid examples were loaded from {}.".format(file_path))
         if 'train' in file_path:
             for idx, example in enumerate(self.examples[:3]):
                     logger.info("*** Example ***")
@@ -199,9 +283,10 @@ def train(args, train_dataset, model, tokenizer):
             logger.info("  "+"*"*20)                          
 
             checkpoint_prefix = 'checkpoint-best-f1'
-            output_dir = os.path.join(args.output_dir, '{}'.format(checkpoint_prefix))                        
+            output_dir = os.path.join(args.output_dir, '{}'.format(checkpoint_prefix))
             if not os.path.exists(output_dir):
-                os.makedirs(output_dir)                        
+                os.makedirs(output_dir)
+            tokenizer.save_pretrained(output_dir)
             output_dir = os.path.join(output_dir, 'model.bin')
             model_to_save = model.module if hasattr(model,'module') else model
             torch.save(model_to_save.state_dict(), output_dir)
@@ -323,6 +408,8 @@ def main():
                         help="Random seed for initialization.")
     parser.add_argument('--contrast', action='store_true',
                         help="Whether to use the contrast sample.") 
+    parser.add_argument("--representation", default="code", type=str, choices=["code", "ast", "combined"],
+                        help="Single-input representation to encode.")
     
     # Print arguments
     args = parser.parse_args()
@@ -339,11 +426,17 @@ def main():
     
     # Set seed
     set_seed(args.seed)
+
+    args.language = resolve_dataset_language(args)
     
     # Build model
-    tokenizer = RobertaTokenizer.from_pretrained(args.model_name_or_path)
+    tokenizer = RobertaTokenizer.from_pretrained(resolve_tokenizer_source(args))
     config = RobertaConfig.from_pretrained(args.model_name_or_path)
     model = RobertaModel.from_pretrained(args.model_name_or_path) 
+    if args.representation == "combined" and AST_SEPARATOR_TOKEN not in tokenizer.get_vocab():
+        tokenizer.add_special_tokens({"additional_special_tokens": [AST_SEPARATOR_TOKEN]})
+    if len(tokenizer) != model.get_input_embeddings().num_embeddings:
+        model.resize_token_embeddings(len(tokenizer))
 
     model = Model(model, config, tokenizer, args)
     logger.info("Training/evaluation parameters %s", args)

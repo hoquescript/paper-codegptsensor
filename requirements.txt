@@ -3,3 +3,7 @@ pandas
 scikit-learn
 torch
 transformers
+tree-sitter
+tree-sitter-cpp
+tree-sitter-java
+tree-sitter-python
