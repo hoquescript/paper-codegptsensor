@@ -20,6 +20,8 @@ virtualenv --clear "$SLURM_TMPDIR/ENV"
 source "$SLURM_TMPDIR/ENV/bin/activate"
 
 pip install --no-index --upgrade pip
+# tree-sitter: CC wheelhouse for python/3.14 ships 0.25.2+computecanada, not 0.23.x.
+# Language wheels are resolved from the same wheelhouse without strict pins.
 pip install --no-index --no-cache-dir \
   numpy \
   pandas \
@@ -28,10 +30,10 @@ pip install --no-index --no-cache-dir \
   scikit-learn \
   scipy \
   sentencepiece \
-  "tree-sitter==0.23.2" \
-  "tree-sitter-cpp==0.23.4" \
-  "tree-sitter-java==0.23.5" \
-  "tree-sitter-python==0.23.6"
+  tree-sitter==0.25.2 \
+  tree-sitter-cpp~=0.23.0 \
+  tree-sitter-python~=0.25.0 \
+  tree_sitter-java~=0.23.0 \
 
 export HF_HOME="$SCRATCH/hf_cache"
 export TRANSFORMERS_CACHE="$HF_HOME/transformers"
