@@ -2,10 +2,10 @@
 #SBATCH --job-name=codegptsensor
 #SBATCH --partition=gpubase_bygpu_b5
 #SBATCH --array=0-1
-#SBATCH --time=48:00:00
+#SBATCH --time=4:00:00
 #SBATCH --gpus-per-node=1
-#SBATCH --cpus-per-task=48
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=32G
 #SBATCH --output=logs/%x-%A_%a.out
 
 set -euo pipefail
@@ -20,8 +20,6 @@ virtualenv --clear "$SLURM_TMPDIR/ENV"
 source "$SLURM_TMPDIR/ENV/bin/activate"
 
 pip install --no-index --upgrade pip
-# tree-sitter: CC wheelhouse for python/3.14 ships 0.25.2+computecanada, not 0.23.x.
-# Language wheels are resolved from the same wheelhouse without strict pins.
 pip install --no-index --no-cache-dir \
   numpy \
   pandas \
@@ -59,20 +57,14 @@ fi
 LANGUAGE="${LANGUAGES[$TASK_ID]}"
 
 MODEL_NAME="${MODEL_NAME:-microsoft/unixcoder-base-nine}"
-NUM_EPOCHS="${NUM_EPOCHS:-20}"
 BLOCK_SIZE="${BLOCK_SIZE:-400}"
-TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-8}"
 EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-16}"
-LEARNING_RATE="${LEARNING_RATE:-2e-5}"
-MAX_GRAD_NORM="${MAX_GRAD_NORM:-1.0}"
 SEED="${SEED:-99}"
 DATASET_SUFFIX="${DATASET_SUFFIX:-}"
 
-TRAIN_DATA_FILE="$ROOT_DIR/dataset/$LANGUAGE/train${DATASET_SUFFIX}.jsonl"
-EVAL_DATA_FILE="$ROOT_DIR/dataset/$LANGUAGE/valid${DATASET_SUFFIX}.jsonl"
-TEST_DATA_FILE="$ROOT_DIR/dataset/$LANGUAGE/test${DATASET_SUFFIX}.jsonl"
+TEST_DATA_FILE="$ROOT_DIR/dataset/aidev/${LANGUAGE}_aidev${DATASET_SUFFIX}.jsonl"
 
-for path in "$TRAIN_DATA_FILE" "$EVAL_DATA_FILE" "$TEST_DATA_FILE"; do
+for path in "$TEST_DATA_FILE"; do
   if [ ! -f "$path" ]; then
     echo "Dataset file not found: $path" >&2
     exit 1
@@ -80,8 +72,6 @@ for path in "$TRAIN_DATA_FILE" "$EVAL_DATA_FILE" "$TEST_DATA_FILE"; do
 done
 
 echo "Running language=$LANGUAGE"
-echo "Train file: $TRAIN_DATA_FILE"
-echo "Eval file:  $EVAL_DATA_FILE"
 echo "Test file:  $TEST_DATA_FILE"
 
 for REPRESENTATION in "${REPRESENTATIONS[@]}"; do
@@ -89,22 +79,6 @@ for REPRESENTATION in "${REPRESENTATIONS[@]}"; do
 
   echo "Running representation=$REPRESENTATION"
   echo "Output dir: $OUTPUT_DIR"
-
-  python "$ROOT_DIR/CodeGPTSensor/run.py" \
-    --do_train \
-    --representation "$REPRESENTATION" \
-    --model_name_or_path "$MODEL_NAME" \
-    --train_data_file "$TRAIN_DATA_FILE" \
-    --eval_data_file "$EVAL_DATA_FILE" \
-    --output_dir "$OUTPUT_DIR" \
-    --num_train_epochs "$NUM_EPOCHS" \
-    --block_size "$BLOCK_SIZE" \
-    --train_batch_size "$TRAIN_BATCH_SIZE" \
-    --eval_batch_size "$EVAL_BATCH_SIZE" \
-    --learning_rate "$LEARNING_RATE" \
-    --max_grad_norm "$MAX_GRAD_NORM" \
-    --seed "$SEED" \
-    --contrast
 
   python "$ROOT_DIR/CodeGPTSensor/run.py" \
     --do_test \
