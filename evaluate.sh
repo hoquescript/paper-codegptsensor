@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=codegptsensor
 #SBATCH --partition=gpubase_bygpu_b5
+#SBATCH --gpus-per-node=nvidia_h100_80gb_hbm3_1g.10gb:1
 #SBATCH --array=0-1
 #SBATCH --time=4:00:00
-#SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --output=logs/%x-%A_%a.out
