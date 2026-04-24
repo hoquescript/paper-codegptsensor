@@ -85,7 +85,15 @@ def convert_examples_to_features(js,tokenizer,args):
     padding_length = args.block_size - len(contrast_ids)
     contrast_ids += [tokenizer.pad_token_id]*padding_length
 
-    js['index'] = int(js["index"][-6:]) 
+    raw_index = js["index"]
+    if isinstance(raw_index, int):
+        parsed_index = raw_index
+    elif isinstance(raw_index, str):
+        trailing_index = raw_index[-6:]
+        parsed_index = int(trailing_index) if trailing_index.isdigit() else int(raw_index)
+    else:
+        parsed_index = int(raw_index)
+    js['index'] = parsed_index
     
     return InputFeatures(source_tokens,source_ids,
                          contrast_tokens,contrast_ids,
